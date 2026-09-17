@@ -1,0 +1,29 @@
+models:
+  - name: gold_hourly_zone_metrics
+    description: Витрина по средним и общим показателям по зонам в час
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: date_hour
+        data_type: timestamp
+        tests:
+          - not_null
+      - name: pickup_borough
+        data_type: string
+        tests:
+          - not_null
+      - name: pickup_zone
+        data_type: string
+        tests:
+          - not_null
+      - name: total_trips
+        data_type: int
+      - name: total_passengers
+        data_type: int
+      - name: avg_distance
+        data_type: float
+      - name: total_revenue
+        data_type: double
+      - name: avg_tip_percent
+        data_type: float

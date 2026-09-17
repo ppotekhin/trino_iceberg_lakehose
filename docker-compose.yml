@@ -1,0 +1,166 @@
+version: "3"
+
+services:
+  iceberg-catalog:
+    image: tabulario/iceberg-rest
+    container_name: iceberg-rest
+    networks:
+      iceberg_net:
+        aliases:
+          - rest
+    ports:
+      - 8181:8181
+    env_file:
+      - ./env/aws.env
+      - ./env/iceberg_catalog.env
+  minio:
+    image: quay.io/minio/minio
+    container_name: minio
+    env_file:
+      - ./env/minio.env
+    networks:
+      iceberg_net:
+        aliases:
+          - warehouse.minio
+    ports:
+      - 9001:9001
+      - 9000:9000
+    volumes:
+      - minio_data:/data
+    command: ["server", "/data", "--console-address", ":9001"]
+  mc:
+    depends_on:
+      - minio
+    image: quay.io/minio/mc
+    container_name: mc
+    networks:
+      iceberg_net:
+    env_file:
+      - ./env/aws.env
+      - ./env/minio.env
+    volumes:
+      - ./scripts/init_minio.sh:/usr/bin/init_minio.sh
+    entrypoint: /usr/bin/init_minio.sh
+  trino:
+    image: trinodb/trino:483
+    container_name: trino
+    ports:
+      - 28080:8080
+    volumes:
+      - ./trino:/etc/trino
+    env_file:
+      - ./env/aws.env
+    depends_on:
+      - iceberg-catalog
+    networks:
+      iceberg_net:
+      airflow:
+    environment:
+      TRINO_JVM_MAX_HEAP_SIZE: 4G 
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 7G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+
+  spark-master:
+    build:
+      context: ./spark
+    container_name: spark-master
+    networks:
+      iceberg_net:
+    depends_on:
+      - iceberg-catalog
+      - minio
+    command: ["/opt/spark/sbin/start-master.sh"]
+    environment:
+      SPARK_MASTER_HOST: spark-master
+    ports:
+      - 8081:8080
+      - 7077:7077
+    volumes:
+      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+
+  spark-worker:
+    build:
+      context: ./spark
+    depends_on:
+      - spark-master
+    networks:
+      iceberg_net:
+    command: ["/opt/spark/sbin/start-worker.sh", "spark://spark-master:7077"]
+    environment:
+      SPARK_WORKER_MEMORY: 4g
+      SPARK_WORKER_CORES: 2
+    volumes:
+      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+      - ./data:/home/iceberg/data
+    deploy:
+      replicas: 2
+  spark-connect:
+    build:
+      context: ./spark
+    container_name: spark-connect
+    depends_on:
+      - spark-master
+      - spark-worker
+    networks:
+      iceberg_net:
+      airflow:
+    command:
+      - "/opt/spark/sbin/start-connect-server.sh"
+      - "--master"
+      - "spark://spark-master:7077"
+      - "--driver-memory"
+      - "2g"
+    ports:
+      - 15002:15002
+      - 4040:4040
+    volumes:
+      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+      - ./data:/home/iceberg/data
+
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - ./env/db.env
+    networks:
+      airflow:
+    ports:
+      - 15432:5432
+    volumes:
+      - ./scripts/init_dbs.sh:/docker-entrypoint-initdb.d/init_dbs.sh
+      - postgres_data:/var/lib/postgresql/data
+  airflow:
+    build:
+      context: .
+    container_name: airflow
+    networks:
+      airflow:
+    env_file:
+      - ./env/airflow.env
+    ports:
+      - 18080:8080
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs/airflow:/opt/airflow/logs
+      - ./dbt_project:/opt/airflow/dbt_project
+      - /opt/airflow/dbt_project/dbt_packages
+      - ./data:/home/iceberg/data
+      - ./env/airflow_users.json:/opt/airflow/simple_auth_manager_passwords.json.generated
+      # - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+  iceberg_data:
+  trino:
+  minio_data:
+
+networks:
+  iceberg_net:
+  airflow:

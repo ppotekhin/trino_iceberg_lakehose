@@ -1,0 +1,69 @@
+models:
+  - name: silver_taxi_trips
+    description: Очищенный инкрементальный слой поездок
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: vendor_id
+        data_type: int
+        tests:
+          - not_null
+      - name: pickup_at
+        data_type: TIMESTAMP(6)
+        tests:
+          - not_null
+      - name: dropoff_at
+        data_type: TIMESTAMP(6)
+        tests:
+          - not_null
+      - name: passenger_count
+        data_type: int
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1 and 9"
+      - name: trip_distance
+        data_type: float
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+      - name: pickup_zone_id
+        data_type: int
+      - name: dropoff_zone_id
+        data_type: int
+      - name: fare_amount
+        data_type: double
+      - name: tip_amount
+        data_type: double
+      - name: total_amount
+        data_type: double
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+  - name: silver_taxi_zones
+    description: Очищенный справочник зон NYC
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: zone_id
+        data_type: int
+        tests:
+          - not_null
+          - unique
+      - name: borough
+        data_type: string
+        tests:
+          - not_null
+      - name: zone_name
+        data_type: string
+        tests:
+          - not_null
+      - name: service_zone
+        data_type: string
+        tests:
+          - not_null
+

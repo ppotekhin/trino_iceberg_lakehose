@@ -1,0 +1,59 @@
+sources:
+  - name: bronze
+    description: Слой необработанных данных
+    database: icbrg
+    schema: bronze
+    tables:
+      - name: yellow_tripdata
+        columns:
+          - name: VendorID
+            data_type: long
+          - name: tpep_pickup_datetime
+            data_type: timestamp_ntz
+          - name: tpep_dropoff_datetime
+            data_type: timestamp_ntz
+          - name: passenger_count
+            data_type: double
+          - name: trip_distance
+            data_type: double
+          - name: RatecodeID
+            data_type: double
+          - name: store_and_fwd_flag
+            data_type: string
+          - name: PULocationID
+            data_type: long
+          - name: DOLocationID
+            data_type: long
+          - name: payment_type
+            data_type: long
+          - name: fare_amount
+            data_type: double
+          - name: extra
+            data_type: double
+          - name: mta_tax
+            data_type: double
+          - name: tip_amount
+            data_type: double
+          - name: tolls_amount
+            data_type: double
+          - name: improvement_surcharge
+            data_type: double
+          - name: total_amount
+            data_type: double
+          - name: congestion_surcharge
+            data_type: double
+          - name: airport_fee
+            data_type: double
+          - name: tpep_pickup_date
+            data_type: timestamp
+      - name: taxi_zone
+        columns:
+          - name: LocationID
+            data_type: string
+          - name: Borough
+            data_type: string
+          - name: Zone
+            data_type: string
+          - name: service_zone
+            data_type: string
+

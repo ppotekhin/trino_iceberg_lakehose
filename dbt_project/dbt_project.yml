@@ -1,0 +1,24 @@
+name: 'nyc_taxi_pipelines'
+version: '1.0.0'
+profile: 'lakehouse'
+model-paths: ["models"]
+macro-paths: ["macros"]
+# analysis-paths: ["analyses"]
+# test-paths: ["tests"]
+# seed-paths: ["seeds"]
+# snapshot-paths: ["snapshots"]
+# clean-targets:
+#   - "target"
+#   - "dbt_packages"
+models:
+  nyc_taxi_pipelines:
+    silver:
+      +database: icbrg
+      +schema: silver
+      +materialized: table
+      +clean_relations: true
+    gold:
+      +database: icbrg
+      +schema: gold
+      +materialized: table
+      +clean_relations: true
