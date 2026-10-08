@@ -13,12 +13,12 @@ macro-paths: ["macros"]
 models:
   nyc_taxi_pipelines:
     silver:
-      +database: icbrg
-      +schema: silver
+      +file_format: iceberg
+      +schema: icbrg.silver
       +materialized: table
       +clean_relations: true
     gold:
-      +database: icbrg
-      +schema: gold
+      +file_format: iceberg
+      +schema: icbrg.gold
       +materialized: table
       +clean_relations: true

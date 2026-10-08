@@ -22,8 +22,8 @@ models:
       - name: total_passengers
         data_type: int
       - name: avg_distance
-        data_type: float
+        data_type: double
       - name: total_revenue
         data_type: double
       - name: avg_tip_percent
-        data_type: float
+        data_type: double

@@ -20,10 +20,10 @@
 * **Оркестрация:** Apache Airflow 3.3.0 (Slim-образ, LocalExecutor) + Astronomer Cosmos
 * **Вычисления и Процессинг:** Apache Spark 4.1.3 (Spark Connect Server + Cluster)
 * **Формат хранения данных:** Apache Iceberg 1.11.0 (REST Catalog)
-* **Трансформация и Тестирование:** dbt-core + dbt-trino (Изолированный `venv` внутри Airflow)
-* **Распределенный SQL-движок:** Trino 483 (для аналитических запросов и dbt-трансформаций)
+* **Трансформация и Тестирование:** dbt-core + dbt-spark
+* **Распределенный SQL-движок:** Trino 483 (для аналитических запросов)
 * **Объектное хранилище (S3):** MinIO + MinIO Client (`mc`)
-* **Системная БД:** PostgreSQL 16 (хранение метаданных Airflow и инициализация юзеров)
+* **Системная БД:** PostgreSQL 16 (хранение метаданных Airflow, iceberg catalog и инициализация юзеров)
 * **Развертывание:** Docker + Docker Compose
 
 ---
@@ -50,7 +50,7 @@ docker compose up --build -d
 
 ---
 
-## 🔌 Настройка Airflow и Trino Соединений
+## 🔌 Настройка Airflow Соединений
 
 После успешного запуска веб-интерфейс Airflow будет доступен по адресу: **`http://localhost:18080`** (Данные для входа по умолчанию: логин `admin` / пароль `password`).
 
@@ -59,25 +59,7 @@ docker compose up --build -d
 1. **`nyc-gov`** (Скачивание датасетов):
    * **Connection Type:** `HTTP`
    * **Host:** `https://cloudfront.net`
-2. **`spark-local`** (Для задач PySpark):
+2. **`spark-local`** (Для задач PySpark и dbt-трансформаций):
    * **Connection Type:** `Spark Connect`
    * **Host:** `spark-connect`
    * **Port:** `15002`
-3. **`lakehouse`** (Для dbt-трансформаций через Trino):
-   * **Connection Type:** `Generic`
-   * **Host:** `trino`
-   * **Port:** `8080`
-   * **Login:** `airflow`
-   * **Extra:** `{"http_scheme": "http"}`
-
-### 💡 Лайфхак по интеграции Trino и dbt
-Чтобы не перегружать окружение скачиванием специализированного тяжелого провайдера `apache-airflow-providers-trino`, для соединения `lakehouse` был выбран базовый тип соединения **Generic** (HTTP-взаимодействие). Airflow общается с Trino по базовому протоколу, а сам dbt запускается в изолированном `dbt_venv` с использованием `dbt-trino`, что гарантирует чистоту зависимостей оркестратора.
-
----
-
-## 📈 Оптимизация производительности в Iceberg
-
-В проекте задействованы продвинутые фичи Apache Iceberg для ускорения аналитических запросов:
-* **Иерархическая сортировка:** В dbt-моделях слоев Silver и Gold прописана конфигурация `write.sort.order` и `write.sort.mode: hierarchical`. Данные физически сортируются по ключевым колонкам (например, `vendor_id`, `pickup_zone_id`), что минимизирует сканирование файлов при фильтрации движком Trino.
-* **Формат Parquet + Snappy:** Обеспечивает высокую степень сжатия данных при сохранении максимальной скорости чтения.
-* **Тайлинг памяти в Trino:** Конфигурация Trino кастомизирована под single-node использование с включенным дисковым спайлингом (`spill-enabled=true`), предотвращающим падение контейнера по Out-Of-Memory (OOM) при обработке "тяжелых" месяцев поездок.

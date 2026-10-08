@@ -1,6 +1,6 @@
 {{
 	config(
-		table_properties={
+		tblproperties={
 			'write.sort.order': 'pickup_borough, pickup_zone, date_hour',
 			'write.sort.mode': 'hierarchical'
 		}

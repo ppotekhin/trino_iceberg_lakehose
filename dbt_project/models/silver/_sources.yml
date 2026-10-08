@@ -1,8 +1,8 @@
 sources:
   - name: bronze
     description: Слой необработанных данных
-    database: icbrg
-    schema: bronze
+    # database: icbrg
+    schema: icbrg.bronze
     tables:
       - name: yellow_tripdata
         columns:

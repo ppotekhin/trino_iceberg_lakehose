@@ -1,6 +1,6 @@
 {{
 	config(
-		table_properties={
+		tblproperties={
 			'write.sort.order': 'vendor_id, passenger_count, pickup_zone_id, dropoff_zone_id',
 			'write.sort.mode': 'hierarchical'
 		}
@@ -10,8 +10,8 @@
 WITH raw_data AS (
 	SELECT 
 		CAST(VendorID AS INTEGER) AS vendor_id,
-		CAST(tpep_pickup_datetime AS TIMESTAMP(6)) AS pickup_at,
-		CAST(tpep_dropoff_datetime AS TIMESTAMP(6)) AS dropoff_at,
+		CAST(tpep_pickup_datetime AS TIMESTAMP) AS pickup_at,
+		CAST(tpep_dropoff_datetime AS TIMESTAMP) AS dropoff_at,
 		CAST(passenger_count AS INTEGER) AS passenger_count,
 		trip_distance,
 		CAST(PULocationID AS INTEGER) AS pickup_zone_id,

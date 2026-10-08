@@ -10,11 +10,11 @@ models:
         tests:
           - not_null
       - name: pickup_at
-        data_type: TIMESTAMP(6)
+        data_type: TIMESTAMP
         tests:
           - not_null
       - name: dropoff_at
-        data_type: TIMESTAMP(6)
+        data_type: TIMESTAMP
         tests:
           - not_null
       - name: passenger_count
@@ -24,7 +24,7 @@ models:
               arguments:
                 expression: "between 1 and 9"
       - name: trip_distance
-        data_type: float
+        data_type: double
         tests:
           - dbt_utils.expression_is_true:
               arguments:
