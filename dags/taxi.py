@@ -1,50 +1,13 @@
-from os import path, environ
 from datetime import datetime
-from enum import StrEnum
 from pyspark.sql.connect.session import SparkSession
-from pyspark.sql.connect.dataframe import DataFrame
-from pyspark.sql.connect.functions import date_trunc
-from pyspark.sql.connect.functions.partitioning import months
 from airflow.sdk import dag, task_group, task
-from airflow.providers.http.hooks.http import HttpHook
 from cosmos import DbtTaskGroup, ProfileConfig, ProjectConfig
-from cosmos.profiles import SparkThriftProfileMapping
-
-
-DBT_PROJECT_PATH: str = path.join(environ.get('AIRFLOW_HOME'),'dbt_project')
-LOCAL_STORAGE_PATH: str = '/home/iceberg/data'
-
-class SparkSessionProfileMapping(SparkThriftProfileMapping):
-	dbt_profile_method: str = 'session'
-
-
-class Connections(StrEnum):
-	SPARK='spark-local'
-	LAKEHOUSE='lakehouse'
-	NYC_GOV='nyc-gov'
-
-
-class NYC_ENDPOINTS(StrEnum):
-	ZONE_LOOKUP='/misc/taxi_zone_lookup.csv'
-	YELLOW_TRIPDATA='/trip-data/yellow_tripdata_{yyyy_mm}.parquet'
-
-
-@task
-def download_file_to_local(
-	http_conn_id: str,
-	endpoint: str,
-	save_to: str,
-	method: str = 'GET'
-) -> str:
-
-	save_full_path: str = path.join(LOCAL_STORAGE_PATH,save_to)
-	http_hook: HttpHook = HttpHook(http_conn_id=http_conn_id,method=method)
-	resp = http_hook.run(endpoint=endpoint, extra_options={ 'stream': True })
-	resp.raise_for_status()
-	with open(save_full_path, 'wb') as f:
-		for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
-			f.write(chunk)
-	return save_full_path
+from settings import DBT_PROJECT_PATH, WAREHOUSE_BUCKET, Connections, SparkSessionProfileMapping, NYC_ENDPOINTS
+from tasks import (
+	download_file_to_s3,
+	get_latest_avro_schema,
+	kafka_to_iceberg
+)
 
 
 @dag(
@@ -56,40 +19,92 @@ def download_file_to_local(
 def nyc_tlc():
 
 	@task.pyspark(conn_id=Connections.SPARK)
-	def create_lakehose(spark: SparkSession):
-		spark.sql(f'CREATE DATABASE IF NOT EXISTS icbrg.bronze')
-		spark.sql(f'CREATE DATABASE IF NOT EXISTS icbrg.silver')
-		spark.sql(f'CREATE DATABASE IF NOT EXISTS icbrg.gold')
+	def create_lakehose(spark: SparkSession) -> None:
 
-	@task.pyspark(conn_id=Connections.SPARK)
-	def yellow_tripdata_to_iceberg(spark: SparkSession):
+		spark.sql('CREATE NAMESPACE IF NOT EXISTS icbrg.bronze')
+		spark.sql('CREATE NAMESPACE IF NOT EXISTS icbrg.silver')
+		spark.sql('CREATE NAMESPACE IF NOT EXISTS icbrg.gold')
 
-		full_table: str = 'icbrg.bronze.yellow_tripdata'
-		src: str = 'file:///home/iceberg/data/yellow_tripdata_*.parquet'
+	@task_group
+	def yellow_tripdata_tg() -> None:
 
-		
-		(spark.read.parquet(src)
-			.writeTo(full_table)
-			.partitionedBy(months('tpep_pickup_datetime'))
-			.tableProperty('write.sort.order', 'PULocationID, DOLocationID, passenger_count, tpep_pickup_datetime')
-			.tableProperty('write.sort.mode', 'partition')
-			.createOrReplace())
+		@task.pyspark(conn_id=Connections.SPARK)
+		def create_yellow_tripdata_table(spark: SparkSession) -> str:
 
-		return full_table
+			table_name: str = 'icbrg.bronze.yellow_tripdata'
+			table_schema: str = '''
+				VendorID long,
+				tpep_pickup_datetime timestamp,
+				tpep_dropoff_datetime timestamp,
+				passenger_count double,
+				trip_distance double,
+				RatecodeID double,
+				store_and_fwd_flag string,
+				PULocationID long,
+				DOLocationID long,
+				payment_type long,
+				fare_amount double,
+				extra double,
+				mta_tax double,
+				tip_amount double,
+				tolls_amount double,
+				improvement_surcharge double,
+				total_amount double,
+				congestion_surcharge double,
+				airport_fee double,
+				tpep_pickup_date timestamp,
+				kafka_ts timestamp,
+				kafka_partition int,
+				kafka_offset long
+			'''
 
-	@task.pyspark(conn_id=Connections.SPARK)
-	def taxi_zone_to_iceberg(src: str, spark: SparkSession):
+			spark.sql(f'''
+				CREATE TABLE IF NOT EXISTS {table_name}({table_schema})
+				USING iceberg
+				PARTITIONED BY (months(kafka_ts))
+			''')
 
-		full_table: str = 'icbrg.bronze.taxi_zone'
-		src = f'file://{src}'
+			return table_name
 
-		(spark.read.csv(src, header=True)
-			.writeTo(full_table)
-			.tableProperty('write.sort.order', 'service_zone, Borough')
-			.tableProperty('write.sort.mode', 'partition')
-			.createOrReplace())
+		iceberg_table: str = create_yellow_tripdata_table()
 
-		return full_table
+		avro_schema: str = get_latest_avro_schema(
+			Connections.AVRO_REGISTRY,
+			'yellow_tripdata_raw-value'
+		)
+
+		kafka_to_iceberg(
+			kafka_conn_id=Connections.KAFKA,
+			avro_schema=avro_schema,
+			topic='yellow_tripdata_raw',
+			iceberg_table=iceberg_table
+		)
+
+	@task_group
+	def taxi_zone_tg() -> None:
+
+		@task.pyspark(conn_id=Connections.SPARK)
+		def taxi_zone_to_iceberg(src: str, spark: SparkSession) -> str:
+
+			full_table: str = 'icbrg.bronze.taxi_zone'
+			(spark.read.csv(src,header=True,encoding='utf-8')
+				.writeTo(full_table)
+				.tableProperty('write.sort.order', 'service_zone, Borough')
+				.tableProperty('write.sort.mode', 'partition')
+				.createOrReplace())
+
+			return full_table
+
+		s3_path: str = download_file_to_s3(
+			Connections.NYC_GOV,
+			NYC_ENDPOINTS.ZONE_LOOKUP,
+			Connections.LAKEHOUSE,
+			WAREHOUSE_BUCKET,
+			'landing/taxi_zone_lookup/{{ run_id }}.csv',
+			stream=False,
+			decode_from='windows-1251'
+		)
+		taxi_zone_to_iceberg(s3_path)
 
 	dbt_transformations: DbtTaskGroup = DbtTaskGroup(
 		group_id='dbt_transformations',
@@ -104,31 +119,8 @@ def nyc_tlc():
 		)
 	)
 
-	@task_group
-	def taxi_zone_tg():
-
-		# taxi_zone_path = download_file_to_local(
-		# 	Connections.NYC_GOV,
-		# 	NYC_ENDPOINTS.ZONE_LOOKUP,
-		# 	'taxi_zone_lookup.csv'
-		# )
-		taxi_zone_to_iceberg(path.join(LOCAL_STORAGE_PATH,'taxi_zone_lookup.csv'))
-
-	@task_group
-	def yellow_tripdata_tg():
-
-		# year: str = '2025'
-		# [
-		# 	download_file_to_local(
-		# 		http_conn_id=Connections.NYC_GOV,
-		# 		endpoint=NYC_ENDPOINTS.YELLOW_TRIPDATA.format(yyyy_mm=f'{year}-{month if month >= 10 else f"0{month}"}'),
-		# 		save_to=f'yellow_tripdata_{year}-{month if month >= 10 else f"0{month}"}.parquet'
-		# 	)
-		# 	for month in range(1,13)
-		# ] >>
-		yellow_tripdata_to_iceberg()
-
 	create_lakehose() >> [yellow_tripdata_tg(),taxi_zone_tg()] >> dbt_transformations
+
 
 nyc_tlc()
 
